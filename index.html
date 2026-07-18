@@ -1,0 +1,1678 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Pitagora Switch - Gravity Basket</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
+
+        * {
+            box-sizing: border-box;
+            font-family: 'Fredoka', -apple-system, sans-serif;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #eef2f6;
+            display: flex;
+            flex-direction: row;
+        }
+        #canvas-container {
+            flex: 1;
+            height: 100vh;
+            position: relative;
+            background-color: #f8fafc;
+            background-image: radial-gradient(#cbd5e1 1.5px, transparent 1.5px);
+            background-size: 24px 24px;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .palette-scroll::-webkit-scrollbar { width: 6px; }
+        .palette-scroll::-webkit-scrollbar-track { background: transparent; }
+        .palette-scroll::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+
+        @keyframes pop-in {
+            0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+            60% { transform: translate(-50%, -50%) scale(1.08); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+        .pop-in { animation: pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container" class="relative overflow-hidden">
+        <!-- Controlli contestuali sopra l'oggetto selezionato -->
+        <div id="object-controls" class="absolute hidden bg-slate-900/95 backdrop-blur-md px-4 py-2 rounded-full gap-4 z-50 shadow-xl border border-white/10 transition-all duration-150 items-center justify-center pointer-events-auto">
+            <button class="ctrl-btn text-2xl active:scale-125 transition-transform duration-75" id="ctrl-rot-left" title="Ruota a sinistra">🔄</button>
+            <div class="w-[1px] h-6 bg-white/20"></div>
+            <button class="ctrl-btn text-2xl active:scale-125 transition-transform duration-75" id="ctrl-delete" title="Elimina oggetto">🗑️</button>
+            <div class="w-[1px] h-6 bg-white/20"></div>
+            <button class="ctrl-btn text-2xl active:scale-125 transition-transform duration-75" id="ctrl-rot-right" title="Ruota a destra">🔁</button>
+        </div>
+
+        <!-- Pop-up di Vittoria -->
+        <div id="goal-overlay" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/95 backdrop-blur-lg border-[6px] border-orange-500 p-8 rounded-3xl shadow-2xl text-center z-[100] hidden pointer-events-none">
+            <h2 class="m-0 text-orange-600 text-4xl font-extrabold tracking-wide mb-2">🎉 CANESTRO! 🎉</h2>
+            <p class="m-0 text-slate-700 text-xl font-semibold">Pitagora Switch!</p>
+        </div>
+
+        <!-- Avviso amichevole -->
+        <div id="hint-toast" class="absolute top-6 left-1/2 -translate-x-1/2 bg-slate-900/95 text-white px-5 py-2.5 rounded-full shadow-xl z-[110] hidden pointer-events-none text-sm font-bold whitespace-nowrap"></div>
+
+        <!-- Modale di conferma cancellazione -->
+        <div id="confirm-modal" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] hidden items-center justify-center">
+            <div class="bg-white p-6 rounded-2xl max-w-sm w-11/12 shadow-2xl text-center border-4 border-amber-400">
+                <span class="text-5xl">🧹</span>
+                <h3 class="text-xl font-bold text-slate-800 mt-3 mb-2">Vuoi svuotare tutto?</h3>
+                <p id="modal-clear-text" class="text-slate-500 text-sm mb-5">Tutti i pezzi posizionati nel tuo livello libero verranno rimossi.</p>
+                <div class="flex gap-3 justify-center">
+                    <button id="modal-cancel" class="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold active:scale-95 transition-transform">Annulla</button>
+                    <button id="modal-confirm" class="px-5 py-2.5 rounded-xl bg-rose-500 text-white font-bold active:scale-95 transition-transform">Sì, svuota</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toolbar" class="w-64 h-100vh bg-slate-100 border-l-[4px] border-slate-200 flex flex-col items-center p-4 gap-4 shadow-xl z-20 overflow-hidden shrink-0">
+        <div class="text-center py-2">
+            <h1 class="text-2xl font-extrabold text-orange-600 tracking-tight leading-none">PITAGORA</h1>
+            <p class="text-xs font-semibold text-slate-400 tracking-widest uppercase">Gravity Basket</p>
+        </div>
+
+        <div class="w-full">
+            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 text-center">Livelli</div>
+            <div class="palette-scroll grid grid-cols-6 gap-1.5 max-h-[104px] overflow-y-auto pr-0.5" id="level-picker">
+                <button class="level-btn py-2 rounded-xl text-xs font-bold bg-slate-200 text-slate-600 active:scale-90 transition-all duration-100" data-level="-1" title="Modalità libera">✏️</button>
+            </div>
+        </div>
+
+        <div class="w-full flex gap-2">
+            <button id="btn-play" class="flex-1 py-3 bg-emerald-500 active:bg-emerald-600 hover:scale-[1.02] active:scale-95 text-white font-bold text-sm rounded-2xl shadow-md transition-all duration-100 flex items-center justify-center gap-2">
+                <span>▶</span> START
+            </button>
+            <button id="btn-reset" class="flex-1 py-3 bg-amber-500 active:bg-amber-600 hover:scale-[1.02] active:scale-95 text-white font-bold text-sm rounded-2xl shadow-md transition-all duration-100 flex items-center justify-center gap-2">
+                <span>↩</span> RESET
+            </button>
+        </div>
+
+        <div class="w-full h-[2px] bg-slate-200"></div>
+
+        <div class="w-full flex-1 flex flex-col min-h-0">
+            <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 text-center">Trascina o clicca</div>
+            <div class="palette-scroll flex-1 overflow-y-auto w-full flex flex-col gap-2.5 pr-1">
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="ball">
+                    <span class="text-3xl filter drop-shadow">🏀</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Palla da Basket</p>
+                        <p class="text-[10px] text-slate-400 font-semibold">Inizia la sfida</p>
+                    </div>
+                </div>
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="goal">
+                    <span class="text-3xl filter drop-shadow">🥅</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Canestro</p>
+                        <p class="text-[10px] text-emerald-500 font-semibold">Con retina e tabellone</p>
+                    </div>
+                </div>
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="ramp">
+                    <span class="text-3xl filter drop-shadow">📐</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Scivolo</p>
+                        <p class="text-[10px] text-slate-400 font-semibold">Binario di legno</p>
+                    </div>
+                </div>
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="trampoline">
+                    <span class="text-3xl filter drop-shadow">🟢</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Trampolino</p>
+                        <p class="text-[10px] text-slate-400 font-semibold">Super rimbalzo</p>
+                    </div>
+                </div>
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="bumper">
+                    <span class="text-3xl filter drop-shadow">🎯</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Respingente</p>
+                        <p class="text-[10px] text-rose-500 font-semibold">Rimbalzo a sorpresa!</p>
+                    </div>
+                </div>
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="fan">
+                    <span class="text-3xl filter drop-shadow">💨</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Ventilatore</p>
+                        <p class="text-[10px] text-sky-500 font-semibold">Soffia la palla</p>
+                    </div>
+                </div>
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="magnet">
+                    <span class="text-3xl filter drop-shadow">🧲</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Calamita</p>
+                        <p class="text-[10px] text-rose-500 font-semibold">Attira la palla</p>
+                    </div>
+                </div>
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="gravity-inverter">
+                    <span class="text-3xl filter drop-shadow">🌀</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Cambio Gravità</p>
+                        <p class="text-[10px] text-slate-400 font-semibold">Inverte Alto/Basso</p>
+                    </div>
+                </div>
+
+                <div class="palette-item flex items-center gap-3 p-2 bg-white hover:bg-slate-50 border-2 border-slate-300 active:border-indigo-400 rounded-2xl cursor-pointer shadow-sm transition-all duration-100 transform active:scale-95" data-type="pulley">
+                    <span class="text-3xl filter drop-shadow">🪣</span>
+                    <div class="text-left">
+                        <p class="text-sm font-bold text-slate-700 leading-none">Carrucola</p>
+                        <p class="text-[10px] text-amber-600 font-semibold">Il secchio scende, il peso sale</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <button id="btn-clear" class="w-full py-2 bg-slate-300 active:bg-rose-500 active:text-white text-slate-600 font-bold text-xs rounded-xl shadow-sm transition-all duration-150">
+            🧹 Svuota Livello
+        </button>
+    </div>
+
+    <script>
+        const { Engine, Render, Runner, Bodies, Composite, Body, Constraint, Vector } = Matter;
+
+        const engine = Engine.create({ gravity: { y: 0 } });
+        const world = engine.world;
+        const container = document.getElementById('canvas-container');
+
+        const getContainerDimensions = () => {
+            const width = container.clientWidth || (window.innerWidth - 256) || 800;
+            const height = container.clientHeight || window.innerHeight || 600;
+            return { width, height };
+        };
+
+        const initialDim = getContainerDimensions();
+
+        const render = Render.create({
+            element: container,
+            engine: engine,
+            options: {
+                width: initialDim.width,
+                height: initialDim.height,
+                wireframes: false,
+                background: 'transparent'
+            }
+        });
+
+        Render.run(render);
+        const runner = Runner.create();
+        Runner.run(runner, engine);
+
+        // ---------------------------------------------------------------
+        // STATO GLOBALE
+        // ---------------------------------------------------------------
+        let isPlaying = false;
+        let spawnedObjects = [];
+        let selectedObjectData = null;
+        let initialPositions = [];
+        let particles = [];
+        let fanRotationAngle = 0;
+        let isDragging = false;
+        let dragOffset = { x: 0, y: 0 };
+        let activePointerId = null; // evita che un secondo dito interrompa un trascinamento in corso
+        let gravityDirection = 1; // 1 = giù, -1 = su
+
+        const wallOptions = { isStatic: true, render: { visible: false } };
+        const ground = Bodies.rectangle(initialDim.width / 2, initialDim.height + 50, 10000, 100, wallOptions);
+        const leftWall = Bodies.rectangle(-50, initialDim.height / 2, 100, 10000, wallOptions);
+        const rightWall = Bodies.rectangle(initialDim.width + 50, initialDim.height / 2, 100, 10000, wallOptions);
+        const topWall = Bodies.rectangle(initialDim.width / 2, -50, 10000, 100, wallOptions);
+        Composite.add(world, [ground, leftWall, rightWall, topWall]);
+
+        function resizeCanvas() {
+            const dim = getContainerDimensions();
+            render.options.width = dim.width;
+            render.options.height = dim.height;
+            if (render.canvas) {
+                render.canvas.width = dim.width;
+                render.canvas.height = dim.height;
+            }
+            render.bounds.max.x = dim.width;
+            render.bounds.max.y = dim.height;
+            Body.setPosition(ground, { x: dim.width / 2, y: dim.height + 50 });
+            Body.setPosition(leftWall, { x: -50, y: dim.height / 2 });
+            Body.setPosition(rightWall, { x: dim.width + 50, y: dim.height / 2 });
+            Body.setPosition(topWall, { x: dim.width / 2, y: -50 });
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('load', () => setTimeout(resizeCanvas, 100));
+
+        // ---------------------------------------------------------------
+        // AUDIO — un solo AudioContext condiviso per tutta l'app.
+        // Crearne uno nuovo ad ogni suono esaurisce il limite di contesti
+        // audio concorrenti su Safari/iPad dopo pochi rimbalzi, silenziando
+        // il gioco: meglio un unico contesto riutilizzato e "risvegliato".
+        // ---------------------------------------------------------------
+        let sharedAudioCtx = null;
+        function getAudioContext() {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextClass) return null;
+            if (!sharedAudioCtx) sharedAudioCtx = new AudioContextClass();
+            if (sharedAudioCtx.state === 'suspended') sharedAudioCtx.resume();
+            return sharedAudioCtx;
+        }
+        window.addEventListener('pointerdown', () => getAudioContext(), { once: true });
+
+        function playPitagoraJingle() {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            const notes = [392.00, 523.25, 587.33, 659.25, 523.25, 392.00, 523.25];
+            const durations = [0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.50];
+            let timeOffset = 0;
+            notes.forEach((freq, i) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, now + timeOffset);
+                gain.gain.setValueAtTime(0.25, now + timeOffset);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + timeOffset + durations[i] - 0.02);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(now + timeOffset);
+                osc.stop(now + timeOffset + durations[i]);
+                timeOffset += durations[i] - 0.02;
+            });
+
+            spawnVictoryConfetti();
+            const overlay = document.getElementById('goal-overlay');
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex', 'pop-in');
+            setTimeout(() => {
+                overlay.classList.remove('flex', 'pop-in');
+                overlay.classList.add('hidden');
+            }, 3800);
+        }
+
+        function playSpringSound() {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(120, now);
+            osc.frequency.exponentialRampToValueAtTime(400, now + 0.15);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.28);
+        }
+
+        function playGravityFlipSound() {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            if (gravityDirection === -1) {
+                osc.frequency.setValueAtTime(180, now);
+                osc.frequency.exponentialRampToValueAtTime(750, now + 0.35);
+            } else {
+                osc.frequency.setValueAtTime(750, now);
+                osc.frequency.exponentialRampToValueAtTime(180, now + 0.35);
+            }
+            gain.gain.setValueAtTime(0.18, now);
+            gain.gain.exponentialRampToValueAtTime(0.005, now + 0.4);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.42);
+        }
+
+        function playBumperPop() {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(520, now);
+            osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+            gain.gain.setValueAtTime(0.22, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.16);
+        }
+
+        function playPulleyCreak() {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(180, now);
+            osc.frequency.linearRampToValueAtTime(110, now + 0.5);
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.linearRampToValueAtTime(0.09, now + 0.08);
+            gain.gain.linearRampToValueAtTime(0.001, now + 0.5);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.52);
+        }
+
+        function playPlaceSound() {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(660, now);
+            gain.gain.setValueAtTime(0.12, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        }
+
+        // ---------------------------------------------------------------
+        // PARTICELLE
+        // ---------------------------------------------------------------
+        function spawnVictoryConfetti() {
+            const centerX = render.options.width / 2;
+            const centerY = render.options.height / 3;
+            const colors = ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ec4899', '#06b6d4'];
+            for (let i = 0; i < 150; i++) {
+                particles.push({
+                    x: centerX, y: centerY,
+                    vx: (Math.random() - 0.5) * 14,
+                    vy: (Math.random() - 0.7) * 16,
+                    radius: Math.random() * 6 + 4,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    life: Math.random() * 100 + 80, maxLife: 180,
+                    isConfetti: true, rot: Math.random() * Math.PI * 2,
+                    rotSpeed: (Math.random() - 0.5) * 0.2
+                });
+            }
+        }
+
+        function spawnGravityParticles(x, y) {
+            const colors = gravityDirection === -1 ? ['#38bdf8', '#0ea5e9', '#bae6fd'] : ['#f43f5e', '#e11d48', '#fecdd3'];
+            for (let i = 0; i < 20; i++) {
+                particles.push({
+                    x: x + (Math.random() - 0.5) * 40, y: y + (Math.random() - 0.5) * 40,
+                    vx: (Math.random() - 0.5) * 3,
+                    vy: gravityDirection === -1 ? (Math.random() * -4 - 1) : (Math.random() * 4 + 1),
+                    radius: Math.random() * 4 + 2, color: colors[Math.floor(Math.random() * colors.length)],
+                    life: Math.random() * 30 + 15, maxLife: 45
+                });
+            }
+        }
+
+        function spawnBumperBurst(x, y) {
+            const colors = ['#fbbf24', '#f97316', '#facc15', '#ffffff'];
+            for (let i = 0; i < 14; i++) {
+                const angle = (Math.PI * 2 * i) / 14;
+                particles.push({
+                    x, y,
+                    vx: Math.cos(angle) * (3 + Math.random() * 3),
+                    vy: Math.sin(angle) * (3 + Math.random() * 3),
+                    radius: Math.random() * 3 + 2, color: colors[Math.floor(Math.random() * colors.length)],
+                    life: 22, maxLife: 22
+                });
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // CREAZIONE OGGETTI
+        // ---------------------------------------------------------------
+        document.querySelectorAll('.palette-item').forEach(item => {
+            item.addEventListener('click', () => {
+                if (isPlaying) {
+                    showHint('⏸️ Premi RESET per tornare a costruire!');
+                    return;
+                }
+                const type = item.getAttribute('data-type');
+                const spawnX = render.options.width > 100 ? render.options.width / 2 : getContainerDimensions().width / 2;
+                const spawnY = render.options.height > 100 ? render.options.height / 2 : getContainerDimensions().height / 2;
+                spawnObject(type, spawnX, spawnY);
+                playPlaceSound();
+            });
+        });
+
+        function spawnObject(type, x, y) {
+            let body;
+            const id = Date.now() + Math.random();
+
+            const safeDim = getContainerDimensions();
+            if (isNaN(x) || x <= 0) x = safeDim.width / 2;
+            if (isNaN(y) || y <= 0) y = safeDim.height / 2;
+
+            if (type === 'ball') {
+                body = Bodies.circle(x, y, 20, {
+                    isStatic: true, // diventa dinamica solo dopo aver premuto Start
+                    restitution: 0.65, friction: 0.006, density: 0.0022,
+                    label: 'ball', render: { visible: false }
+                });
+
+            } else if (type === 'gravity-inverter') {
+                body = Bodies.rectangle(x, y, 65, 65, {
+                    isStatic: true, isSensor: true,
+                    label: 'gravity-inverter', render: { visible: false }
+                });
+                body.cooldown = 0;
+
+            } else if (type === 'pulley') {
+                // -----------------------------------------------------------
+                // CARRUCOLA — un punto fisso (la ruota) con una corda a
+                // lunghezza costante: da un lato pende il SECCHIO (parte in
+                // alto, pronto a ricevere la palla), dall'altro il PESO
+                // (parte in basso). Quando la palla cade nel secchio, il
+                // secchio scende lentamente fino all'altezza di partenza
+                // del peso, e il peso sale della stessa quantità (corda a
+                // lunghezza costante: se un lato scende, l'altro sale).
+                // Arrivato in fondo, il secchio si rovescia e libera la
+                // palla, che riprende il suo percorso.
+                //
+                // "handle" (la ruota) è l'UNICO oggetto trascinabile/
+                // selezionabile/eliminabile della coppia: secchio e peso
+                // sono due corpi fisici indipendenti (serve un corpo reale
+                // al secchio per rilevare quando la palla ci cade dentro)
+                // ma vengono tenuti "agganciati" alla ruota e riposizionati
+                // ad ogni istante fisico, quindi seguono automaticamente
+                // trascinamento e reset senza bisogno di logica separata.
+                // -----------------------------------------------------------
+                const armOffset = 42;   // distanza orizzontale di secchio/peso dalla ruota
+                const dropBucket0 = 55;  // quanto pende il secchio all'inizio (in alto)
+                const dropWeight0 = 150; // quanto pende il peso all'inizio (in basso)
+                const ropeLength = dropBucket0 + dropWeight0; // lunghezza corda, costante
+
+                const handle = Bodies.circle(x, y, 16, {
+                    isStatic: true, isSensor: true,
+                    label: 'pulley-handle', render: { visible: false }
+                });
+                const bucketBody = Bodies.rectangle(x + armOffset, y + dropBucket0, 40, 30, {
+                    isStatic: true, isSensor: true,
+                    label: 'pulley-bucket', render: { visible: false }
+                });
+                const weightBody = Bodies.rectangle(x - armOffset, y + dropWeight0, 26, 30, {
+                    isStatic: true, isSensor: true,
+                    label: 'pulley-weight', render: { visible: false }
+                });
+                Composite.add(world, [bucketBody, weightBody]);
+
+                body = handle;
+                body.pulleyGeom = { armOffset, dropBucket0, dropWeight0, ropeLength, wheelR: 16 };
+                body.bucketBody = bucketBody;
+                body.weightBody = weightBody;
+                bucketBody.ownerPulley = handle; // per ritrovare la carrucola dal secchio nelle collisioni
+                body.bucketDrop = dropBucket0; // stato corrente (si aggiorna durante l'animazione)
+                body.tipAngle = 0;
+                body.triggered = false;   // true dal momento in cui una palla entra nel secchio
+                body.animating = false;   // true mentre il secchio scende
+                body.tipping = false;     // true mentre il secchio si rovescia
+                body.ballReleased = false;
+                body.capturedBall = null;
+
+            } else if (type === 'ramp') {
+                body = Bodies.rectangle(x, y, 180, 24, {
+                    isStatic: true, friction: 0.05,
+                    label: 'ramp', render: { visible: false }
+                });
+                Body.setAngle(body, 0.2);
+
+            } else if (type === 'trampoline') {
+                body = Bodies.rectangle(x, y, 110, 24, {
+                    isStatic: true, label: 'trampoline', render: { visible: false }
+                });
+                body.springStretch = 0;
+
+            } else if (type === 'bumper') {
+                body = Bodies.circle(x, y, 30, {
+                    isStatic: true, restitution: 0.3, friction: 0.1,
+                    label: 'bumper', render: { visible: false }
+                });
+                body.flashTimer = 0;
+                body.cooldown = 0;
+
+            } else if (type === 'fan') {
+                body = Bodies.rectangle(x, y, 70, 60, {
+                    isStatic: true, label: 'fan', render: { visible: false }
+                });
+
+            } else if (type === 'magnet') {
+                body = Bodies.rectangle(x, y, 65, 65, {
+                    isStatic: true, label: 'magnet', render: { visible: false }
+                });
+
+            } else if (type === 'goal') {
+                // -----------------------------------------------------------
+                // CANESTRO — l'UNICA parte fisicamente solida è il ferro
+                // metallico (i due montanti del cerchio). Il tabellone è
+                // puramente decorativo dal punto di vista fisico: è un
+                // sensore, quindi la palla lo attraversa liberamente senza
+                // mai rimbalzarci contro o restarne bloccata. Così il tiro
+                // funziona sempre, da qualunque angolazione o direzione
+                // (anche con la gravità invertita).
+                // -----------------------------------------------------------
+                const rimY = 26;          // altezza del ferro (relativa al centro)
+                const rimOffsetX = 36;    // metà distanza tra i due montanti del ferro
+                const rimR = 7;           // raggio fisico di ciascun montante
+
+                const backboardW = 124;
+                const backboardH = 76;
+                const backboardBottom = rimY - 8;
+                const backboardCenterY = backboardBottom - backboardH / 2;
+
+                const backboard = Bodies.rectangle(x, y + backboardCenterY, backboardW, backboardH, {
+                    label: 'goal-backboard',
+                    isSensor: true, // decorativo: nessuna collisione fisica
+                    render: { visible: false }
+                });
+                const leftRim = Bodies.circle(x - rimOffsetX, y + rimY, rimR, {
+                    label: 'goal-rim', restitution: 0.6, friction: 0.05, render: { visible: false }
+                });
+                const rightRim = Bodies.circle(x + rimOffsetX, y + rimY, rimR, {
+                    label: 'goal-rim', restitution: 0.6, friction: 0.05, render: { visible: false }
+                });
+                const mainSensor = Bodies.rectangle(x, y + rimY + 22, 50, 9, {
+                    isSensor: true, label: 'goal-sensor', render: { visible: false }
+                });
+
+                body = Body.create({
+                    parts: [backboard, leftRim, rightRim, mainSensor],
+                    isStatic: true, label: 'goal', render: { visible: false }
+                });
+                body.renderOffset = { x: body.position.x - x, y: body.position.y - y };
+                body.pressOffset = 0;
+                body.goalTriggered = false;
+                // Salviamo la geometria per un disegno perfettamente coerente
+                body.goalGeom = { rimY, rimOffsetX, rimR, backboardW, backboardH, backboardBottom, backboardCenterY };
+            }
+
+            body.customId = id;
+            body.customType = type;
+            spawnedObjects.push(body);
+            Composite.add(world, body);
+            selectObject(body);
+        }
+
+        // ---------------------------------------------------------------
+        // SELEZIONE / DRAG / ROTAZIONE / ELIMINAZIONE
+        // ---------------------------------------------------------------
+        function selectObject(body) {
+            if (isPlaying) return;
+            selectedObjectData = body;
+            const controls = document.getElementById('object-controls');
+            controls.style.display = 'flex';
+            const rx = body.position.x - (body.renderOffset ? body.renderOffset.x : 0);
+            const ry = body.position.y - (body.renderOffset ? body.renderOffset.y : 0);
+            controls.style.left = `${rx - 65}px`;
+            controls.style.top = `${ry - 80}px`;
+        }
+
+        function deselectObject() {
+            selectedObjectData = null;
+            document.getElementById('object-controls').style.display = 'none';
+        }
+
+        document.getElementById('ctrl-rot-left').addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            if (selectedObjectData) {
+                Body.setAngle(selectedObjectData, selectedObjectData.angle - 0.20);
+                if (selectedObjectData.customConstraint) {
+                    selectedObjectData.customConstraint.pointA = { x: selectedObjectData.position.x, y: selectedObjectData.position.y };
+                }
+                selectObject(selectedObjectData);
+            }
+        });
+
+        document.getElementById('ctrl-rot-right').addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            if (selectedObjectData) {
+                Body.setAngle(selectedObjectData, selectedObjectData.angle + 0.20);
+                if (selectedObjectData.customConstraint) {
+                    selectedObjectData.customConstraint.pointA = { x: selectedObjectData.position.x, y: selectedObjectData.position.y };
+                }
+                selectObject(selectedObjectData);
+            }
+        });
+
+        document.getElementById('ctrl-delete').addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            if (selectedObjectData) {
+                if (selectedObjectData.customConstraint) Composite.remove(world, selectedObjectData.customConstraint);
+                if (selectedObjectData.customType === 'pulley') {
+                    Composite.remove(world, selectedObjectData.bucketBody);
+                    Composite.remove(world, selectedObjectData.weightBody);
+                }
+                Composite.remove(world, selectedObjectData);
+                spawnedObjects = spawnedObjects.filter(o => o.customId !== selectedObjectData.customId);
+                deselectObject();
+            }
+        });
+
+        container.addEventListener('pointerdown', (e) => {
+            if (isPlaying) return;
+            if (e.target.closest('#object-controls')) return;
+            // Ignora un secondo dito se stiamo già trascinando qualcosa
+            if (isDragging) return;
+
+            const rect = container.getBoundingClientRect();
+            const touchX = e.clientX - rect.left;
+            const touchY = e.clientY - rect.top;
+            const bodiesFound = Matter.Query.point(spawnedObjects, { x: touchX, y: touchY });
+
+            if (bodiesFound.length > 0) {
+                let clickedBody = bodiesFound[0];
+                if (clickedBody.parent && clickedBody.parent !== clickedBody) clickedBody = clickedBody.parent;
+
+                if (clickedBody.isLocked) {
+                    // Pezzo fisso del livello: non si sposta né si elimina
+                    deselectObject();
+                    return;
+                }
+
+                isDragging = true;
+                activePointerId = e.pointerId;
+                selectObject(clickedBody);
+                dragOffset.x = touchX - clickedBody.position.x;
+                dragOffset.y = touchY - clickedBody.position.y;
+                container.setPointerCapture(e.pointerId);
+                e.preventDefault();
+            } else {
+                deselectObject();
+            }
+        });
+
+        container.addEventListener('pointermove', (e) => {
+            if (!isDragging || !selectedObjectData || isPlaying) return;
+            if (e.pointerId !== activePointerId) return;
+            const rect = container.getBoundingClientRect();
+            const touchX = e.clientX - rect.left;
+            const touchY = e.clientY - rect.top;
+            const targetX = touchX - dragOffset.x;
+            const targetY = touchY - dragOffset.y;
+
+            Body.setPosition(selectedObjectData, { x: targetX, y: targetY });
+            if (selectedObjectData.customConstraint) {
+                selectedObjectData.customConstraint.pointA = { x: targetX, y: targetY };
+            }
+            const rx = targetX - (selectedObjectData.renderOffset ? selectedObjectData.renderOffset.x : 0);
+            const ry = targetY - (selectedObjectData.renderOffset ? selectedObjectData.renderOffset.y : 0);
+            const controls = document.getElementById('object-controls');
+            controls.style.left = `${rx - 65}px`;
+            controls.style.top = `${ry - 80}px`;
+            e.preventDefault();
+        });
+
+        function endDrag(e) {
+            if (isDragging && e.pointerId === activePointerId) {
+                try { container.releasePointerCapture(e.pointerId); } catch (err) { /* già rilasciato */ }
+                isDragging = false;
+                activePointerId = null;
+            }
+        }
+        container.addEventListener('pointerup', endDrag);
+        container.addEventListener('pointercancel', endDrag);
+
+        // ---------------------------------------------------------------
+        // PLAY / RESET / SVUOTA
+        // ---------------------------------------------------------------
+        const btnPlay = document.getElementById('btn-play');
+        const btnReset = document.getElementById('btn-reset');
+        const btnClear = document.getElementById('btn-clear');
+        const hintToast = document.getElementById('hint-toast');
+        let hintTimeout = null;
+
+        function showHint(message) {
+            hintToast.textContent = message;
+            hintToast.classList.remove('hidden');
+            if (hintTimeout) clearTimeout(hintTimeout);
+            hintTimeout = setTimeout(() => hintToast.classList.add('hidden'), 2200);
+        }
+
+        // ---------------------------------------------------------------
+        // LIVELLI — ogni livello ha già il canestro e qualche pezzo
+        // posizionati; il resto del gioco (fisica, controlli, pezzi
+        // disponibili) resta esattamente come nella modalità libera.
+        // Le coordinate sono espresse come frazione (0-1) delle dimensioni
+        // del campo di gioco, così i livelli restano coerenti anche se lo
+        // schermo cambia dimensione.
+        // ---------------------------------------------------------------
+        const LEVELS = [
+            { name: 'Livello 1', hint: '🥅 Guida la palla nel canestro!',
+              objects: [ { type: 'goal', xFrac: 0.72, yFrac: 0.80 }, { type: 'ramp', xFrac: 0.28, yFrac: 0.35, angle: 0.25 } ] },
+            { name: 'Livello 2', hint: '🟢 Usa il trampolino per superare il vuoto!',
+              objects: [ { type: 'goal', xFrac: 0.84, yFrac: 0.28 }, { type: 'ramp', xFrac: 0.22, yFrac: 0.32, angle: 0.3 }, { type: 'trampoline', xFrac: 0.22, yFrac: 0.82 } ] },
+            { name: 'Livello 3', hint: '🌀 Capovolgi la gravità per arrivare in alto!',
+              objects: [ { type: 'goal', xFrac: 0.5, yFrac: 0.14 }, { type: 'gravity-inverter', xFrac: 0.5, yFrac: 0.55 } ] },
+            { name: 'Livello 4', hint: '🧲 La calamita può darti una mano!',
+              objects: [ { type: 'goal', xFrac: 0.86, yFrac: 0.55 }, { type: 'bumper', xFrac: 0.35, yFrac: 0.35 }, { type: 'magnet', xFrac: 0.62, yFrac: 0.55 } ] },
+            { name: 'Livello 5', hint: '🪣 Aziona la carrucola per proseguire!',
+              objects: [ { type: 'goal', xFrac: 0.16, yFrac: 0.22 }, { type: 'pulley', xFrac: 0.55, yFrac: 0.40 } ] },
+            { name: 'Livello 6', hint: '📐 Trova la strada con due rampe!',
+              objects: [ { type: 'goal', xFrac: 0.85, yFrac: 0.75 }, { type: 'ramp', xFrac: 0.20, yFrac: 0.25, angle: 0.3 }, { type: 'ramp', xFrac: 0.55, yFrac: 0.50, angle: -0.25 } ] },
+            { name: 'Livello 7', hint: '🟢 Due trampolini, un solo canestro!',
+              objects: [ { type: 'goal', xFrac: 0.50, yFrac: 0.15 }, { type: 'trampoline', xFrac: 0.20, yFrac: 0.85 }, { type: 'trampoline', xFrac: 0.75, yFrac: 0.55 } ] },
+            { name: 'Livello 8', hint: '💨 Lascia che il vento ti aiuti!',
+              objects: [ { type: 'goal', xFrac: 0.88, yFrac: 0.45 }, { type: 'fan', xFrac: 0.30, yFrac: 0.45 } ] },
+            { name: 'Livello 9', hint: '🎯 Occhio ai respingenti a sorpresa!',
+              objects: [ { type: 'goal', xFrac: 0.50, yFrac: 0.85 }, { type: 'bumper', xFrac: 0.30, yFrac: 0.30 }, { type: 'bumper', xFrac: 0.70, yFrac: 0.30 }, { type: 'bumper', xFrac: 0.50, yFrac: 0.50 } ] },
+            { name: 'Livello 10', hint: '🌀 A volte serve andare su, a volte giù!',
+              objects: [ { type: 'goal', xFrac: 0.75, yFrac: 0.18 }, { type: 'gravity-inverter', xFrac: 0.30, yFrac: 0.50 }, { type: 'ramp', xFrac: 0.75, yFrac: 0.75, angle: -0.2 } ] },
+            { name: 'Livello 11', hint: '🪣 Prima la carrucola, poi lo scivolo!',
+              objects: [ { type: 'goal', xFrac: 0.85, yFrac: 0.68 }, { type: 'pulley', xFrac: 0.30, yFrac: 0.32 }, { type: 'ramp', xFrac: 0.85, yFrac: 0.28, angle: 0.2 } ] },
+            { name: 'Livello 12', hint: '☁️ Il canestro è tra le nuvole!',
+              objects: [ { type: 'goal', xFrac: 0.50, yFrac: 0.10 }, { type: 'trampoline', xFrac: 0.50, yFrac: 0.85 }, { type: 'gravity-inverter', xFrac: 0.50, yFrac: 0.45 } ] },
+            { name: 'Livello 13', hint: '🎯 Aggira l\'ostacolo e trova la via!',
+              objects: [ { type: 'goal', xFrac: 0.20, yFrac: 0.60 }, { type: 'bumper', xFrac: 0.55, yFrac: 0.60 }, { type: 'ramp', xFrac: 0.80, yFrac: 0.25, angle: 0.3 } ] },
+            { name: 'Livello 14', hint: '💨🧲 Vento e calamita insieme!',
+              objects: [ { type: 'goal', xFrac: 0.90, yFrac: 0.50 }, { type: 'fan', xFrac: 0.32, yFrac: 0.50 }, { type: 'magnet', xFrac: 0.64, yFrac: 0.50 } ] },
+            { name: 'Livello 15', hint: '📐 Un lungo cammino a zig-zag!',
+              objects: [ { type: 'goal', xFrac: 0.90, yFrac: 0.82 }, { type: 'ramp', xFrac: 0.15, yFrac: 0.20, angle: 0.25 }, { type: 'ramp', xFrac: 0.45, yFrac: 0.42, angle: -0.2 }, { type: 'ramp', xFrac: 0.72, yFrac: 0.62, angle: 0.2 } ] },
+            { name: 'Livello 16', hint: '🌀 Il mondo è capovolto!',
+              objects: [ { type: 'goal', xFrac: 0.25, yFrac: 0.15 }, { type: 'trampoline', xFrac: 0.70, yFrac: 0.80 }, { type: 'gravity-inverter', xFrac: 0.45, yFrac: 0.45 } ] },
+            { name: 'Livello 17', hint: '🧲 Due calamite, due tentazioni!',
+              objects: [ { type: 'goal', xFrac: 0.50, yFrac: 0.85 }, { type: 'magnet', xFrac: 0.25, yFrac: 0.40 }, { type: 'magnet', xFrac: 0.75, yFrac: 0.40 } ] },
+            { name: 'Livello 18', hint: '💨🎯 Vento e respingente, che confusione!',
+              objects: [ { type: 'goal', xFrac: 0.85, yFrac: 0.30 }, { type: 'fan', xFrac: 0.28, yFrac: 0.75 }, { type: 'bumper', xFrac: 0.58, yFrac: 0.45 } ] },
+            { name: 'Livello 19', hint: '🪣🎯 Carrucola e respingente!',
+              objects: [ { type: 'goal', xFrac: 0.80, yFrac: 0.75 }, { type: 'pulley', xFrac: 0.28, yFrac: 0.30 }, { type: 'bumper', xFrac: 0.55, yFrac: 0.55 } ] },
+            { name: 'Livello 20', hint: '🏆 La sfida finale: usa tutto quello che sai!',
+              objects: [ { type: 'goal', xFrac: 0.88, yFrac: 0.20 }, { type: 'ramp', xFrac: 0.15, yFrac: 0.28, angle: 0.25 }, { type: 'trampoline', xFrac: 0.15, yFrac: 0.85 }, { type: 'bumper', xFrac: 0.50, yFrac: 0.45 }, { type: 'gravity-inverter', xFrac: 0.75, yFrac: 0.55 } ] }
+        ];
+
+        // Genera automaticamente un pulsante numerato per ogni livello
+        // dell'elenco sopra: basta aggiungere una voce a LEVELS per avere
+        // un nuovo livello, senza dover scrivere l'HTML a mano ogni volta.
+        const levelPicker = document.getElementById('level-picker');
+        LEVELS.forEach((level, idx) => {
+            const btn = document.createElement('button');
+            btn.className = 'level-btn py-2 rounded-xl text-xs font-bold bg-slate-200 text-slate-600 active:scale-90 transition-all duration-100';
+            btn.setAttribute('data-level', idx);
+            btn.title = level.name;
+            btn.textContent = (idx + 1).toString();
+            levelPicker.appendChild(btn);
+        });
+
+        let currentLevelIndex = -1; // -1 = modalità libera (comportamento invariato)
+
+        function updateLevelButtons() {
+            document.querySelectorAll('.level-btn').forEach(btn => {
+                const idx = parseInt(btn.getAttribute('data-level'), 10);
+                const active = idx === currentLevelIndex;
+                btn.classList.toggle('bg-indigo-500', active);
+                btn.classList.toggle('text-white', active);
+                btn.classList.toggle('bg-slate-200', !active);
+                btn.classList.toggle('text-slate-600', !active);
+            });
+            const modalText = document.getElementById('modal-clear-text');
+            modalText.textContent = currentLevelIndex === -1
+                ? 'Tutti i pezzi posizionati nel tuo livello libero verranno rimossi.'
+                : 'Verranno rimossi solo i pezzi che hai aggiunto tu: il canestro e gli ostacoli del livello restano al loro posto.';
+        }
+
+        function loadLevel(levelIndex) {
+            // Ferma un'eventuale partita in corso e riporta tutto a riposo
+            isPlaying = false;
+            engine.gravity.y = 0;
+            gravityDirection = 1;
+            deselectObject();
+            document.getElementById('goal-overlay').classList.add('hidden');
+            hintToast.classList.add('hidden');
+            btnPlay.classList.remove('opacity-40', 'pointer-events-none');
+
+            // Rimuove tutti gli oggetti presenti, sia quelli del livello precedente
+            // sia quelli eventualmente aggiunti dal giocatore
+            spawnedObjects.forEach(obj => {
+                if (obj.customConstraint) Composite.remove(world, obj.customConstraint);
+                if (obj.customType === 'pulley') {
+                    Composite.remove(world, obj.bucketBody);
+                    Composite.remove(world, obj.weightBody);
+                }
+                Composite.remove(world, obj);
+            });
+            spawnedObjects = [];
+
+            currentLevelIndex = levelIndex;
+            updateLevelButtons();
+
+            if (levelIndex === -1) {
+                showHint('✏️ Modalità libera: costruisci quello che vuoi!');
+                return;
+            }
+
+            const level = LEVELS[levelIndex];
+            const dim = getContainerDimensions();
+            level.objects.forEach(def => {
+                spawnObject(def.type, dim.width * def.xFrac, dim.height * def.yFrac);
+                const placed = spawnedObjects[spawnedObjects.length - 1];
+                if (def.angle) Body.setAngle(placed, def.angle);
+                placed.isLocked = true; // i pezzi del livello non si spostano né si eliminano
+            });
+            deselectObject();
+            showHint(level.hint);
+        }
+
+        document.querySelectorAll('.level-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (isPlaying) {
+                    showHint('⏸️ Premi RESET per cambiare livello!');
+                    return;
+                }
+                loadLevel(parseInt(btn.getAttribute('data-level'), 10));
+            });
+        });
+        updateLevelButtons(); // evidenzia "✏️ Libero" all'avvio, comportamento di default invariato
+
+        // Riporta una carrucola allo stato iniziale: secchio in alto vuoto,
+        // peso in basso, nessuna animazione in corso
+        function resetPulleyState(pulley) {
+            pulley.bucketDrop = pulley.pulleyGeom.dropBucket0;
+            pulley.tipAngle = 0;
+            pulley.triggered = false;
+            pulley.animating = false;
+            pulley.tipping = false;
+            pulley.ballReleased = false;
+            pulley.capturedBall = null;
+        }
+
+        btnPlay.addEventListener('click', () => {
+            if (isPlaying) return;
+            const hasBall = spawnedObjects.some(obj => obj.customType === 'ball');
+            if (!hasBall) {
+                showHint('🏀 Metti prima una pallina da basket!');
+                return;
+            }
+            deselectObject();
+
+            initialPositions = spawnedObjects.map(obj => ({
+                id: obj.customId, position: { ...obj.position }, angle: obj.angle,
+                velocity: { ...obj.velocity }, angularVelocity: obj.angularVelocity, isStatic: obj.isStatic
+            }));
+
+            gravityDirection = 1;
+            engine.gravity.y = 1.25 * gravityDirection;
+
+            spawnedObjects.forEach(obj => {
+                if (obj.customType === 'ball') {
+                    Body.setStatic(obj, false);
+                }
+                if (obj.customType === 'gravity-inverter') obj.cooldown = 0;
+                if (obj.customType === 'bumper') { obj.cooldown = 0; obj.flashTimer = 0; }
+                if (obj.customType === 'goal') obj.goalTriggered = false;
+                if (obj.customType === 'pulley') resetPulleyState(obj);
+            });
+
+            isPlaying = true;
+            btnPlay.classList.add('opacity-40', 'pointer-events-none');
+        });
+
+        btnReset.addEventListener('click', () => {
+            if (!isPlaying) return;
+            engine.gravity.y = 0;
+            gravityDirection = 1;
+
+            initialPositions.forEach(saved => {
+                const obj = spawnedObjects.find(o => o.customId === saved.id);
+                if (obj) {
+                    Body.setStatic(obj, true);
+                    Body.setPosition(obj, saved.position);
+                    Body.setAngle(obj, saved.angle);
+                    Body.setVelocity(obj, { x: 0, y: 0 });
+                    Body.setAngularVelocity(obj, 0);
+                    if (obj.customConstraint) obj.customConstraint.pointA = { ...saved.position };
+                    if (obj.customType === 'goal') { obj.pressOffset = 0; obj.goalTriggered = false; }
+                    if (obj.customType === 'trampoline') obj.springStretch = 0;
+                    if (obj.customType === 'gravity-inverter') obj.cooldown = 0;
+                    if (obj.customType === 'bumper') { obj.cooldown = 0; obj.flashTimer = 0; }
+                    if (obj.customType === 'pulley') resetPulleyState(obj);
+                }
+            });
+
+            isPlaying = false;
+            btnPlay.classList.remove('opacity-40', 'pointer-events-none');
+            deselectObject();
+            document.getElementById('goal-overlay').classList.add('hidden');
+            hintToast.classList.add('hidden');
+        });
+
+        const confirmModal = document.getElementById('confirm-modal');
+        document.getElementById('modal-cancel').addEventListener('click', () => confirmModal.style.display = 'none');
+        btnClear.addEventListener('click', () => confirmModal.style.display = 'flex');
+
+        document.getElementById('modal-confirm').addEventListener('click', () => {
+            confirmModal.style.display = 'none';
+            deselectObject();
+            isPlaying = false;
+            engine.gravity.y = 0;
+            gravityDirection = 1;
+            spawnedObjects.forEach(obj => {
+                if (obj.isLocked) return; // i pezzi fissi del livello restano
+                if (obj.customConstraint) Composite.remove(world, obj.customConstraint);
+                if (obj.customType === 'pulley') {
+                    Composite.remove(world, obj.bucketBody);
+                    Composite.remove(world, obj.weightBody);
+                }
+                Composite.remove(world, obj);
+            });
+            spawnedObjects = spawnedObjects.filter(obj => obj.isLocked);
+            btnPlay.classList.remove('opacity-40', 'pointer-events-none');
+            document.getElementById('goal-overlay').classList.add('hidden');
+            hintToast.classList.add('hidden');
+        });
+
+        // ---------------------------------------------------------------
+        // AGGIORNAMENTO FISICO (prima di ogni step)
+        // ---------------------------------------------------------------
+        // Anima e sincronizza una carrucola: fa avanzare la discesa del
+        // secchio (e la salita del peso, conseguenza automatica) e il
+        // ribaltamento finale, e tiene secchio/peso sempre agganciati
+        // alla posizione attuale della ruota (utile anche mentre si
+        // trascina l'oggetto in fase di costruzione).
+        function updatePulley(pulley) {
+            const g = pulley.pulleyGeom;
+
+            if (isPlaying) {
+                if (pulley.animating) {
+                    // Discesa lenta e costante: ~2.5 secondi per l'intero tragitto
+                    const descendSpeed = (g.dropWeight0 - g.dropBucket0) / 150;
+                    pulley.bucketDrop += descendSpeed;
+                    if (pulley.bucketDrop >= g.dropWeight0) {
+                        pulley.bucketDrop = g.dropWeight0; // ha raggiunto l'altezza dove prima c'era il peso
+                        pulley.animating = false;
+                        pulley.tipping = true;
+                    }
+                } else if (pulley.tipping) {
+                    const TIP_MAX = 2.3; // ~132°, il secchio si rovescia bene
+                    pulley.tipAngle += TIP_MAX / 30; // ~0.5 secondi
+                    if (!pulley.ballReleased && pulley.capturedBall && pulley.tipAngle >= TIP_MAX * 0.4) {
+                        const ball = pulley.capturedBall;
+                        Body.setStatic(ball, false);
+                        Body.setVelocity(ball, { x: 4.2, y: -1.5 }); // piccola spinta: la palla "esce" e riprende la corsa
+                        pulley.ballReleased = true;
+                    }
+                    if (pulley.tipAngle >= TIP_MAX) {
+                        pulley.tipAngle = TIP_MAX;
+                        pulley.tipping = false;
+                    }
+                }
+            }
+
+            // Secchio e peso seguono sempre la ruota (drag, reset, ecc.)
+            const bucketX = pulley.position.x + g.armOffset;
+            const bucketY = pulley.position.y + pulley.bucketDrop;
+            Body.setPosition(pulley.bucketBody, { x: bucketX, y: bucketY });
+
+            const weightDrop = g.ropeLength - pulley.bucketDrop; // corda a lunghezza costante
+            Body.setPosition(pulley.weightBody, { x: pulley.position.x - g.armOffset, y: pulley.position.y + weightDrop });
+
+            // La palla catturata resta visivamente dentro al secchio finché non viene liberata
+            if (pulley.capturedBall && !pulley.ballReleased) {
+                Body.setPosition(pulley.capturedBall, { x: bucketX, y: bucketY - 4 });
+                Body.setVelocity(pulley.capturedBall, { x: 0, y: 0 });
+            }
+        }
+
+        Matter.Events.on(engine, 'beforeUpdate', () => {
+            fanRotationAngle += isPlaying ? 0.25 : 0.04;
+
+            spawnedObjects.forEach(obj => {
+                if (obj.customType === 'trampoline' && obj.springStretch > 0) obj.springStretch *= 0.88;
+                if (obj.customType === 'goal' && obj.pressOffset > 0) obj.pressOffset *= 0.92;
+                if (obj.customType === 'gravity-inverter' && obj.cooldown > 0) obj.cooldown--;
+                if (obj.customType === 'bumper') {
+                    if (obj.cooldown > 0) obj.cooldown--;
+                    if (obj.flashTimer > 0) obj.flashTimer *= 0.85;
+                }
+                if (obj.customType === 'pulley') updatePulley(obj);
+            });
+
+            if (isPlaying) engine.gravity.y = 1.25 * gravityDirection;
+
+            const balls = spawnedObjects.filter(o => o.customType === 'ball');
+            const fans = spawnedObjects.filter(o => o.customType === 'fan');
+            const magnets = spawnedObjects.filter(o => o.customType === 'magnet');
+
+            fans.forEach(fan => {
+                const windDir = { x: Math.cos(fan.angle), y: Math.sin(fan.angle) };
+                if (isPlaying) {
+                    balls.forEach(ball => {
+                        const toBall = Vector.sub(ball.position, fan.position);
+                        const distance = Vector.magnitude(toBall);
+                        if (distance < 480) {
+                            const normalizedToBall = Vector.normalise(toBall);
+                            const alignment = Vector.dot(normalizedToBall, windDir);
+                            if (alignment > 0.82) {
+                                const forceMagnitude = (1 - distance / 480) * 0.0075;
+                                Body.applyForce(ball, ball.position, { x: windDir.x * forceMagnitude, y: windDir.y * forceMagnitude });
+                            }
+                        }
+                    });
+                }
+                if (Math.random() < (isPlaying ? 0.55 : 0.20)) {
+                    particles.push({
+                        x: fan.position.x + Math.cos(fan.angle) * 35, y: fan.position.y + Math.sin(fan.angle) * 35,
+                        vx: Math.cos(fan.angle) * 8.0 + (Math.random() - 0.5) * 1.5,
+                        vy: Math.sin(fan.angle) * 8.0 + (Math.random() - 0.5) * 1.5,
+                        radius: Math.random() * 2 + 1.5,
+                        color: isPlaying ? 'rgba(14, 165, 233, 0.55)' : 'rgba(148, 163, 184, 0.3)',
+                        life: 60, maxLife: 60
+                    });
+                }
+            });
+
+            magnets.forEach(magnet => {
+                if (isPlaying) {
+                    balls.forEach(ball => {
+                        const toMagnet = Vector.sub(magnet.position, ball.position);
+                        const distance = Vector.magnitude(toMagnet);
+                        if (distance < 320) {
+                            // La forza satura sotto i 45px (non aumenta più quando la
+                            // palla è ormai a contatto) e il massimo resta sempre più
+                            // debole della gravità: la calamita curva la traiettoria
+                            // e attira da lontano, ma non può mai fermare o "incollare"
+                            // la palla al suo fianco.
+                            const effectiveDistance = Math.max(distance, 45);
+                            const forceMagnitude = (1 - effectiveDistance / 320) * 0.0016;
+                            const force = Vector.mult(Vector.normalise(toMagnet), forceMagnitude);
+                            Body.applyForce(ball, ball.position, force);
+                        }
+                    });
+                }
+                if (Math.random() < 0.08) {
+                    particles.push({
+                        x: magnet.position.x, y: magnet.position.y, radius: 220,
+                        life: 35, maxLife: 35, isMagnet: true,
+                        color: 'rgba(239, 68, 68, 0.25)', angle: magnet.angle
+                    });
+                }
+            });
+        });
+
+        // ---------------------------------------------------------------
+        // RENDER PERSONALIZZATO
+        // ---------------------------------------------------------------
+        Matter.Events.on(render, 'afterRender', () => {
+            const ctx = render.context;
+
+            // Particelle (si itera all'indietro per poter rimuovere con splice senza saltarne altre)
+            for (let index = particles.length - 1; index >= 0; index--) {
+                const p = particles[index];
+                p.life--;
+                if (p.life <= 0) { particles.splice(index, 1); continue; }
+
+                ctx.save();
+                if (p.isMagnet) {
+                    const currentRadius = p.radius * (1 - (p.life / p.maxLife));
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.angle);
+                    ctx.strokeStyle = p.color;
+                    ctx.lineWidth = 2.5;
+                    ctx.setLineDash([4, 6]);
+                    ctx.beginPath();
+                    ctx.arc(0, -10, currentRadius * 0.6, -Math.PI / 2, Math.PI / 2);
+                    ctx.stroke();
+                } else if (p.isConfetti) {
+                    p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.vx *= 0.98; p.rot += p.rotSpeed;
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.rot);
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(-p.radius, -p.radius / 1.5, p.radius * 2, p.radius * 1.3);
+                } else {
+                    p.x += p.vx; p.y += p.vy;
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius * (p.life / p.maxLife), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+
+            spawnedObjects.forEach(obj => {
+                ctx.save();
+                const rx = obj.position.x - (obj.renderOffset ? obj.renderOffset.x : 0);
+                const ry = obj.position.y - (obj.renderOffset ? obj.renderOffset.y : 0);
+                ctx.translate(rx, ry);
+                ctx.rotate(obj.angle);
+
+                if (obj.customType === 'ball') {
+                    const radius = 20;
+                    const gradient = ctx.createRadialGradient(-6, -6, 2, 0, 0, radius);
+                    gradient.addColorStop(0, '#f97316');
+                    gradient.addColorStop(0.6, '#ea580c');
+                    gradient.addColorStop(1, '#9a3412');
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#1e293b';
+                    ctx.lineWidth = 1.6;
+                    ctx.beginPath();
+                    ctx.arc(-radius * 0.8, 0, radius * 0.9, -Math.PI / 3, Math.PI / 3);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(radius * 0.8, 0, radius * 0.9, Math.PI * 0.66, Math.PI * 1.33);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(-radius, 0); ctx.lineTo(radius, 0);
+                    ctx.moveTo(0, -radius); ctx.lineTo(0, radius);
+                    ctx.stroke();
+
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.beginPath();
+                    ctx.arc(-7, -7, 4, 0, Math.PI * 2);
+                    ctx.fill();
+
+                } else if (obj.customType === 'gravity-inverter') {
+                    const rotTime = Date.now() * 0.0035;
+                    ctx.lineWidth = 4;
+                    ctx.strokeStyle = '#38bdf8';
+                    ctx.shadowColor = '#0ea5e9';
+                    ctx.shadowBlur = 12;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 28, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+
+                    ctx.strokeStyle = '#a855f7';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 33, rotTime, rotTime + Math.PI * 0.5);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 33, rotTime + Math.PI, rotTime + Math.PI * 1.5);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#38bdf8';
+                    ctx.beginPath();
+                    ctx.moveTo(0, -18); ctx.lineTo(-8, -8); ctx.lineTo(-3, -8);
+                    ctx.lineTo(-3, -2); ctx.lineTo(3, -2); ctx.lineTo(3, -8); ctx.lineTo(8, -8);
+                    ctx.closePath(); ctx.fill();
+
+                    ctx.fillStyle = '#f43f5e';
+                    ctx.beginPath();
+                    ctx.moveTo(0, 18); ctx.lineTo(-8, 8); ctx.lineTo(-3, 8);
+                    ctx.lineTo(-3, 2); ctx.lineTo(3, 2); ctx.lineTo(3, 8); ctx.lineTo(8, 8);
+                    ctx.closePath(); ctx.fill();
+
+                } else if (obj.customType === 'pulley') {
+                    // Annulliamo l'eventuale rotazione dell'intero pezzo: la
+                    // carrucola resta sempre verticale, esattamente come sono
+                    // posizionati fisicamente secchio e peso (sempre dritti
+                    // sotto la ruota, indipendentemente da come è ruotata
+                    // l'icona-maniglia che si trascina)
+                    ctx.rotate(-obj.angle);
+
+                    const g = obj.pulleyGeom;
+                    const bucketW = 40, bucketH = 30;
+                    const weightW = 26, weightH = 30;
+
+                    const bucketLocalX = g.armOffset, bucketLocalY = obj.bucketDrop;
+                    const weightLocalX = -g.armOffset, weightLocalY = g.ropeLength - obj.bucketDrop;
+                    const bucketPivotY = bucketLocalY - bucketH / 2; // punto di aggancio della corda al secchio
+
+                    // 1. Corde
+                    ctx.strokeStyle = '#94a3b8';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0); ctx.lineTo(weightLocalX, weightLocalY - weightH / 2);
+                    ctx.moveTo(0, 0); ctx.lineTo(bucketLocalX, bucketPivotY);
+                    ctx.stroke();
+
+                    // 2. Peso (un sacco di pietra grigio)
+                    ctx.save();
+                    ctx.translate(weightLocalX, weightLocalY);
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.strokeStyle = '#64748b';
+                    ctx.lineWidth = 2.5;
+                    drawRoundedRect(ctx, -weightW / 2, -weightH / 2, weightW, weightH, 6);
+                    ctx.fill(); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(-weightW / 2 + 5, -4); ctx.lineTo(weightW / 2 - 5, -4); ctx.stroke();
+                    ctx.restore();
+
+                    // 3. Secchio: ruota attorno al punto di aggancio della corda
+                    // (obj.tipAngle passa da 0 a ~2.3 rad quando arriva in fondo e si rovescia)
+                    ctx.save();
+                    ctx.translate(bucketLocalX, bucketPivotY);
+                    ctx.rotate(obj.tipAngle);
+                    ctx.fillStyle = '#d97706';
+                    ctx.strokeStyle = '#92400e';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(-bucketW / 2, 0);
+                    ctx.lineTo(bucketW / 2, 0);
+                    ctx.lineTo(bucketW / 2 - 5, bucketH);
+                    ctx.lineTo(-bucketW / 2 + 5, bucketH);
+                    ctx.closePath();
+                    ctx.fill(); ctx.stroke();
+                    ctx.strokeStyle = '#78350f';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.moveTo(-bucketW / 2 + 2, 2);
+                    ctx.quadraticCurveTo(0, -12, bucketW / 2 - 2, 2);
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // 4. Ruota (disegnata sopra, con qualche raggio decorativo)
+                    ctx.fillStyle = '#475569';
+                    ctx.beginPath(); ctx.arc(0, 0, g.wheelR, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = '#cbd5e1';
+                    ctx.lineWidth = 2;
+                    for (let a = 0; a < 3; a++) {
+                        const ang = a * (Math.PI * 2 / 3);
+                        ctx.beginPath();
+                        ctx.moveTo(0, 0);
+                        ctx.lineTo(Math.cos(ang) * g.wheelR * 0.8, Math.sin(ang) * g.wheelR * 0.8);
+                        ctx.stroke();
+                    }
+                    ctx.strokeStyle = '#1e293b';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath(); ctx.arc(0, 0, g.wheelR, 0, Math.PI * 2); ctx.stroke();
+                    ctx.fillStyle = '#0f172a';
+                    ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, Math.PI * 2); ctx.fill();
+
+                } else if (obj.customType === 'ramp') {
+                    ctx.fillStyle = '#e2e8f0';
+                    ctx.strokeStyle = '#94a3b8';
+                    ctx.lineWidth = 3;
+                    drawRoundedRect(ctx, -90, -12, 180, 24, 6);
+                    ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#cbd5e1';
+                    drawRoundedRect(ctx, -85, -5, 170, 10, 3);
+                    ctx.fill();
+
+                } else if (obj.customType === 'trampoline') {
+                    const stretch = obj.springStretch || 0;
+                    ctx.strokeStyle = '#64748b';
+                    ctx.lineWidth = 4;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath(); ctx.moveTo(-45, 0); ctx.lineTo(-40, 25); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(45, 0); ctx.lineTo(40, 25); ctx.stroke();
+                    ctx.fillStyle = '#1e293b';
+                    ctx.beginPath();
+                    ctx.arc(-40, 25, 4, 0, Math.PI * 2);
+                    ctx.arc(40, 25, 4, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#94a3b8';
+                    ctx.lineWidth = 2.5;
+                    for (let step = -45; step <= 45; step += 15) {
+                        ctx.beginPath();
+                        ctx.moveTo(step, -1);
+                        ctx.lineTo(step + 3, 5 + stretch * 8);
+                        ctx.stroke();
+                    }
+
+                    ctx.fillStyle = '#10b981';
+                    ctx.strokeStyle = '#059669';
+                    ctx.lineWidth = 4.5;
+                    ctx.beginPath();
+                    ctx.moveTo(-48, -10);
+                    ctx.quadraticCurveTo(0, -10 + stretch * 28, 48, -10);
+                    ctx.lineTo(48, 3);
+                    ctx.quadraticCurveTo(0, 3 + stretch * 28, -48, 3);
+                    ctx.closePath();
+                    ctx.fill(); ctx.stroke();
+
+                } else if (obj.customType === 'bumper') {
+                    const flash = obj.flashTimer || 0;
+                    ctx.fillStyle = '#f43f5e';
+                    ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = flash > 0.05 ? '#fef9c3' : '#fbbf24';
+                    ctx.beginPath(); ctx.arc(0, 0, 21, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = flash > 0.05 ? '#ffffff' : '#fde68a';
+                    ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = '#be123c';
+                    ctx.lineWidth = 3.5;
+                    ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.stroke();
+                    if (flash > 0.05) {
+                        ctx.strokeStyle = `rgba(255,255,255,${Math.min(flash, 1)})`;
+                        ctx.lineWidth = 4;
+                        ctx.beginPath(); ctx.arc(0, 0, 30 + flash * 14, 0, Math.PI * 2); ctx.stroke();
+                    }
+
+                } else if (obj.customType === 'fan') {
+                    ctx.fillStyle = '#475569';
+                    ctx.strokeStyle = '#334155';
+                    ctx.lineWidth = 3.5;
+                    drawRoundedRect(ctx, -35, -30, 70, 60, 12);
+                    ctx.fill(); ctx.stroke();
+
+                    ctx.fillStyle = '#1e293b';
+                    ctx.beginPath(); ctx.arc(10, 0, 24, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = '#f8fafc';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+
+                    ctx.save();
+                    ctx.translate(10, 0);
+                    ctx.rotate(fanRotationAngle);
+                    ctx.fillStyle = '#94a3b8';
+                    for (let a = 0; a < 3; a++) {
+                        ctx.rotate((Math.PI * 2) / 3);
+                        ctx.beginPath();
+                        ctx.ellipse(0, -12, 6, 16, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.restore();
+
+                    ctx.fillStyle = '#f8fafc';
+                    ctx.beginPath(); ctx.arc(10, 0, 4.5, 0, Math.PI * 2); ctx.fill();
+
+                    ctx.save();
+                    ctx.translate(35, 0);
+                    ctx.strokeStyle = isPlaying ? 'rgba(14, 165, 233, 0.6)' : 'rgba(148, 163, 184, 0.4)';
+                    ctx.fillStyle = isPlaying ? 'rgba(56, 189, 248, 0.12)' : 'rgba(203, 213, 225, 0.08)';
+                    ctx.lineWidth = 2.5;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(0, -10); ctx.lineTo(260, -45); ctx.lineTo(260, 45); ctx.lineTo(0, 10);
+                    ctx.closePath();
+                    ctx.fill(); ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.strokeStyle = isPlaying ? '#0284c7' : '#64748b';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(15, 0); ctx.lineTo(125, 0); ctx.lineTo(115, -8);
+                    ctx.moveTo(125, 0); ctx.lineTo(115, 8);
+                    ctx.stroke();
+                    ctx.restore();
+
+                } else if (obj.customType === 'magnet') {
+                    ctx.lineWidth = 3.5;
+                    ctx.strokeStyle = '#475569';
+                    ctx.fillStyle = '#ef4444';
+                    ctx.beginPath();
+                    ctx.moveTo(-28, 20); ctx.lineTo(-28, -5);
+                    ctx.quadraticCurveTo(-28, -28, -5, -28);
+                    ctx.lineTo(-5, -14);
+                    ctx.quadraticCurveTo(-14, -14, -14, -5);
+                    ctx.lineTo(-14, 20);
+                    ctx.closePath();
+                    ctx.fill(); ctx.stroke();
+
+                    ctx.fillStyle = '#3b82f6';
+                    ctx.beginPath();
+                    ctx.moveTo(28, 20); ctx.lineTo(28, -5);
+                    ctx.quadraticCurveTo(28, -28, 5, -28);
+                    ctx.lineTo(5, -14);
+                    ctx.quadraticCurveTo(14, -14, 14, -5);
+                    ctx.lineTo(14, 20);
+                    ctx.closePath();
+                    ctx.fill(); ctx.stroke();
+
+                    ctx.fillStyle = '#cbd5e1';
+                    ctx.strokeStyle = '#475569';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.rect(-28, 16, 14, 14); ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 11px Fredoka';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('N', -21, 23);
+
+                    ctx.fillStyle = '#cbd5e1';
+                    ctx.beginPath(); ctx.rect(14, 16, 14, 14); ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText('S', 21, 23);
+
+                } else if (obj.customType === 'goal') {
+                    // Disegno del canestro usando ESATTAMENTE la stessa geometria
+                    // salvata in body.goalGeom al momento della creazione, così
+                    // grafica e fisica restano sempre coerenti tra loro.
+                    const g = obj.goalGeom;
+                    const rimY = g.rimY, rimOffsetX = g.rimOffsetX;
+                    const bbBottom = g.backboardBottom, bbTop = bbBottom - g.backboardH;
+
+                    // 1. Tabellone
+                    ctx.fillStyle = '#ffffff';
+                    ctx.strokeStyle = '#ef4444';
+                    ctx.lineWidth = 5;
+                    drawRoundedRect(ctx, -g.backboardW / 2, bbTop, g.backboardW, g.backboardH, 8);
+                    ctx.fill(); ctx.stroke();
+
+                    // Quadrato rosso di mira
+                    ctx.strokeStyle = '#ef4444';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(-26, bbBottom - 24, 52, 20);
+
+                    // Staffa nera che collega il tabellone al ferro (solo decorativa)
+                    ctx.fillStyle = '#1e293b';
+                    ctx.fillRect(-9, bbBottom - 2, 18, (rimY - g.rimR) - bbBottom + 6);
+
+                    // 2. Retina intrecciata
+                    ctx.strokeStyle = 'rgba(226, 232, 240, 0.9)';
+                    ctx.lineWidth = 2.2;
+                    const netTopY = rimY;
+                    const netBottomY = rimY + 48;
+                    for (let i = 0; i <= 8; i++) {
+                        const t = i / 8;
+                        const startX = -rimOffsetX + t * (2 * rimOffsetX);
+                        const endX = startX * 0.55;
+                        ctx.beginPath();
+                        ctx.moveTo(startX, netTopY);
+                        ctx.quadraticCurveTo(startX * 0.8, (netTopY + netBottomY) / 2, endX, netBottomY);
+                        ctx.stroke();
+
+                        const revStartX = rimOffsetX - t * (2 * rimOffsetX);
+                        const revEndX = revStartX * 0.55;
+                        ctx.beginPath();
+                        ctx.moveTo(revStartX, netTopY);
+                        ctx.quadraticCurveTo(revStartX * 0.8, (netTopY + netBottomY) / 2, revEndX, netBottomY);
+                        ctx.stroke();
+                    }
+                    ctx.strokeStyle = 'rgba(226, 232, 240, 0.65)';
+                    ctx.lineWidth = 1.8;
+                    for (let h = netTopY + 8; h < netBottomY; h += 8) {
+                        const scale = 1 - ((h - netTopY) / (netBottomY - netTopY)) * 0.45;
+                        const currentRadius = rimOffsetX * scale;
+                        ctx.beginPath();
+                        ctx.ellipse(0, h, currentRadius, 4 * scale, 0, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+
+                    // 3. Ferro arancione regolamentare
+                    ctx.strokeStyle = '#f97316';
+                    ctx.lineWidth = 6;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.ellipse(0, rimY, rimOffsetX, 9, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+
+                if (obj.customConstraint) {
+                    ctx.save();
+                    const pivot = obj.customConstraint.pointA;
+                    ctx.strokeStyle = '#475569';
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.arc(pivot.x, pivot.y, 6, 0, Math.PI * 2);
+                    ctx.fillStyle = '#cbd5e1';
+                    ctx.fill(); ctx.stroke();
+                    ctx.restore();
+                }
+            });
+
+            if (selectedObjectData && !isPlaying) {
+                ctx.save();
+                ctx.strokeStyle = '#4f46e5';
+                ctx.lineWidth = 2.5;
+                ctx.setLineDash([6, 6]);
+                ctx.beginPath();
+                const rx = selectedObjectData.position.x - (selectedObjectData.renderOffset ? selectedObjectData.renderOffset.x : 0);
+                const ry = selectedObjectData.position.y - (selectedObjectData.renderOffset ? selectedObjectData.renderOffset.y : 0);
+
+                if (selectedObjectData.customType === 'pulley') {
+                    // Il cerchio di selezione copre tutto il meccanismo (ruota + peso + secchio),
+                    // non solo la piccola ruota che è il vero corpo fisico trascinabile
+                    const g = selectedObjectData.pulleyGeom;
+                    const selRadius = g.armOffset + Math.max(g.dropWeight0, g.dropBucket0) * 0.55;
+                    ctx.arc(rx, ry + g.dropWeight0 * 0.35, selRadius, 0, Math.PI * 2);
+                } else {
+                    const bounds = selectedObjectData.bounds;
+                    const width = bounds.max.x - bounds.min.x + 15;
+                    const height = bounds.max.y - bounds.min.y + 15;
+                    ctx.arc(rx, ry, Math.max(width, height) / 2, 0, Math.PI * 2);
+                }
+                ctx.stroke();
+                ctx.restore();
+            }
+        });
+
+        function drawRoundedRect(ctx, x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height - radius);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+        }
+
+        // ---------------------------------------------------------------
+        // COLLISIONI
+        // ---------------------------------------------------------------
+        Matter.Events.on(engine, 'collisionStart', function(event) {
+            event.pairs.forEach(pair => {
+
+                // CANESTRO — attraversamento reale del sensore, nella direzione
+                // coerente con la gravità attiva in quel momento
+                if ((pair.bodyA.label === 'ball' && pair.bodyB.label === 'goal-sensor') ||
+                    (pair.bodyB.label === 'ball' && pair.bodyA.label === 'goal-sensor')) {
+
+                    const ball = pair.bodyA.label === 'ball' ? pair.bodyA : pair.bodyB;
+                    const sensorObj = pair.bodyA.label === 'goal-sensor' ? pair.bodyA : pair.bodyB;
+                    const isPassingThrough = (gravityDirection === 1 && ball.velocity.y > 0.3) ||
+                                              (gravityDirection === -1 && ball.velocity.y < -0.3);
+
+                    if (isPlaying && isPassingThrough) {
+                        const parentGoal = sensorObj.parent || sensorObj;
+                        if (!parentGoal.goalTriggered) {
+                            parentGoal.goalTriggered = true;
+                            parentGoal.pressOffset = 1.0;
+                            playPitagoraJingle();
+                            if (currentLevelIndex !== -1) {
+                                setTimeout(() => showHint(`🏆 ${LEVELS[currentLevelIndex].name} superato!`), 1800);
+                            }
+                        }
+                    }
+                }
+
+                // CARRUCOLA — la palla entra nel secchio: parte la discesa
+                // (una volta sola per partita, come il canestro)
+                if ((pair.bodyA.label === 'ball' && pair.bodyB.label === 'pulley-bucket') ||
+                    (pair.bodyB.label === 'ball' && pair.bodyA.label === 'pulley-bucket')) {
+
+                    const ball = pair.bodyA.label === 'ball' ? pair.bodyA : pair.bodyB;
+                    const bucketObj = pair.bodyA.label === 'pulley-bucket' ? pair.bodyA : pair.bodyB;
+                    const pulley = bucketObj.ownerPulley;
+
+                    if (isPlaying && pulley && !pulley.triggered) {
+                        pulley.triggered = true;
+                        pulley.animating = true;
+                        pulley.capturedBall = ball;
+                        Body.setStatic(ball, true); // la palla "viaggia" con il secchio finché non viene liberata
+                        Body.setVelocity(ball, { x: 0, y: 0 });
+                        playPulleyCreak();
+                    }
+                }
+
+                // CAMBIO GRAVITÀ
+                if ((pair.bodyA.label === 'ball' && pair.bodyB.label === 'gravity-inverter') ||
+                    (pair.bodyB.label === 'ball' && pair.bodyA.label === 'gravity-inverter')) {
+
+                    const inverter = pair.bodyA.label === 'gravity-inverter' ? pair.bodyA : pair.bodyB;
+                    if (isPlaying && (!inverter.cooldown || inverter.cooldown <= 0)) {
+                        gravityDirection *= -1;
+                        inverter.cooldown = 45;
+                        playGravityFlipSound();
+                        spawnGravityParticles(inverter.position.x, inverter.position.y);
+                    }
+                }
+
+                // TRAMPOLINO — attivo solo dopo Start; la direzione del
+                // rimbalzo si calcola in base al lato reale da cui arriva
+                // la palla (funziona anche con la gravità invertita o con
+                // trampolini ruotati)
+                if (isPlaying &&
+                    ((pair.bodyA.label === 'ball' && pair.bodyB.label === 'trampoline') ||
+                     (pair.bodyB.label === 'ball' && pair.bodyA.label === 'trampoline'))) {
+
+                    const ball = pair.bodyA.label === 'ball' ? pair.bodyA : pair.bodyB;
+                    const trampoline = pair.bodyA.label === 'trampoline' ? pair.bodyA : pair.bodyB;
+
+                    const faceX = Math.sin(trampoline.angle);
+                    const faceY = -Math.cos(trampoline.angle);
+                    const toBallX = ball.position.x - trampoline.position.x;
+                    const toBallY = ball.position.y - trampoline.position.y;
+                    const side = (faceX * toBallX + faceY * toBallY) >= 0 ? 1 : -1;
+
+                    const bounceForce = 15.5;
+                    Body.setVelocity(ball, { x: faceX * side * bounceForce, y: faceY * side * bounceForce });
+
+                    trampoline.springStretch = 1.0;
+                    playSpringSound();
+                }
+
+                // RESPINGENTE — rimbalzo radiale stile flipper, con un piccolo
+                // tempo di ricarica per evitare inneschi multipli mentre la
+                // palla resta a contatto
+                if ((pair.bodyA.label === 'ball' && pair.bodyB.label === 'bumper') ||
+                    (pair.bodyB.label === 'ball' && pair.bodyA.label === 'bumper')) {
+
+                    const ball = pair.bodyA.label === 'ball' ? pair.bodyA : pair.bodyB;
+                    const bumper = pair.bodyA.label === 'bumper' ? pair.bodyA : pair.bodyB;
+
+                    if (isPlaying && (!bumper.cooldown || bumper.cooldown <= 0)) {
+                        const away = Vector.sub(ball.position, bumper.position);
+                        const dir = Vector.magnitude(away) > 0.001 ? Vector.normalise(away) : { x: 0, y: -1 };
+                        const kickForce = 14;
+                        Body.setVelocity(ball, { x: dir.x * kickForce, y: dir.y * kickForce });
+
+                        bumper.cooldown = 10;
+                        bumper.flashTimer = 1;
+                        spawnBumperBurst(ball.position.x, ball.position.y);
+                        playBumperPop();
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
