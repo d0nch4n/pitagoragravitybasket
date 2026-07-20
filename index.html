@@ -24,6 +24,7 @@
             width: 100vw;
             height: 100vh;
             overflow: hidden;
+            overscroll-behavior: none; /* evita l'effetto "rimbalzo" di iPadOS sull'intera pagina */
             background-color: #eef2f6;
             display: flex;
             flex-direction: row;
@@ -35,11 +36,29 @@
             background-color: #f8fafc;
             background-image: radial-gradient(#cbd5e1 1.5px, transparent 1.5px);
             background-size: 24px 24px;
+            /* Fondamentale su touchscreen (iPad in particolare): senza questa
+               proprietà, un movimento del dito abbastanza veloce viene
+               interpretato dal browser come gesto di scorrimento nativo e
+               "ruba" l'evento al trascinamento JS a metà gesto (il pezzo si
+               ferma e sembra muoversi lo sfondo). Con touch-action:none il
+               browser lascia gestire il tocco interamente al JavaScript,
+               a qualunque velocità. Vale solo per il piano di gioco: la
+               lista pezzi/livelli nella toolbar (.palette-scroll) resta
+               scorrevole normalmente col dito, vedi regola dedicata sotto. */
+            touch-action: none;
+            -ms-touch-action: none;
         }
         canvas {
             display: block;
             width: 100%;
             height: 100%;
+            touch-action: none;
+        }
+        .palette-scroll {
+            /* La lista pezzi/livelli nella toolbar deve restare scorrevole
+               normalmente col dito (verticalmente), a differenza del piano
+               di gioco dove il tocco è gestito interamente dal JS */
+            touch-action: pan-y;
         }
         .palette-scroll::-webkit-scrollbar { width: 6px; }
         .palette-scroll::-webkit-scrollbar-track { background: transparent; }
